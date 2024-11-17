@@ -19,7 +19,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-const difficulty = 1
+const difficulty = 6
 
 // Block represents each 'item' in the blockchain
 type Block struct {
@@ -57,6 +57,7 @@ func main() {
 		mutex.Lock()
 		Blockchain = append(Blockchain, genesisBlock)
 		mutex.Unlock()
+		autoMint()
 	}()
 	log.Fatal(run())
 
@@ -80,6 +81,13 @@ func run() error {
 	}
 
 	return nil
+}
+
+func autoMint() {
+	for {
+		mintNextBlock(Message{BPM: 1})
+		//time.Sleep(5 * time.Second)
+	}
 }
 
 // create handlers
@@ -113,14 +121,7 @@ func handleWriteBlock(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	//ensure atomicity when creating new block
-	mutex.Lock()
-	newBlock := generateBlock(Blockchain[len(Blockchain)-1], m.BPM)
-	mutex.Unlock()
-
-	if isBlockValid(newBlock, Blockchain[len(Blockchain)-1]) {
-		Blockchain = append(Blockchain, newBlock)
-		spew.Dump(Blockchain)
-	}
+	newBlock := mintNextBlock(m)
 
 	respondWithJSON(w, r, http.StatusCreated, newBlock)
 
@@ -136,6 +137,20 @@ func respondWithJSON(w http.ResponseWriter, r *http.Request, code int, payload i
 	}
 	w.WriteHeader(code)
 	w.Write(response)
+}
+
+func mintNextBlock(msg Message) Block {
+	mutex.Lock()
+	newBlock := generateBlock(Blockchain[len(Blockchain)-1], msg.BPM)
+	mutex.Unlock()
+
+	if isBlockValid(newBlock, Blockchain[len(Blockchain)-1]) {
+		Blockchain = append(Blockchain, newBlock)
+		//spew.Dump(newBlock)
+		fmt.Println("newBlock", newBlock.Timestamp, newBlock.Hash)
+		return newBlock
+	}
+	return Block{}
 }
 
 // make sure block is valid by checking index, and comparing the hash of the previous block
@@ -179,13 +194,14 @@ func generateBlock(oldBlock Block, BPM int) Block {
 	for i := 0; ; i++ {
 		hex := fmt.Sprintf("%x", i)
 		newBlock.Nonce = hex
-		if !isHashValid(calculateHash(newBlock), newBlock.Difficulty) {
-			fmt.Println(calculateHash(newBlock), " do more work!")
-			time.Sleep(time.Second)
+		hash := calculateHash(newBlock)
+		if !isHashValid(hash, newBlock.Difficulty) {
+			//fmt.Println(calculateHash(newBlock), " do more work!")
+			//time.Sleep(time.Second)
 			continue
 		} else {
-			fmt.Println(calculateHash(newBlock), " work done!")
-			newBlock.Hash = calculateHash(newBlock)
+			//fmt.Println(hash, " work done!")
+			newBlock.Hash = hash
 			break
 		}
 

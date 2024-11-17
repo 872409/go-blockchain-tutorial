@@ -22,8 +22,10 @@ type Block struct {
 	Index     int
 	Timestamp string
 	BPM       int
-	Hash      string
-	PrevHash  string
+	//Minter    string
+	//Minters   string
+	Hash     string
+	PrevHash string
 }
 
 // Blockchain is a series of validated Blocks
@@ -36,6 +38,33 @@ type Message struct {
 
 var mutex = &sync.Mutex{}
 
+func loadBlock() {
+
+	genesisBlock := Block{}
+	genesisBlock = Block{86, time.Now().Add(-5 * time.Second).String(), 0, "e965c2b399f0ddfaeff8a1056e6ee8a5645edadc8a66216d16c3a17ce4a9cfa5", "a380c1232e54ee4e33806d1f3a5de415f378b1cf6734170412b0fbe8236e7096"}
+	spew.Dump(genesisBlock)
+
+	mutex.Lock()
+	Blockchain = append(Blockchain, genesisBlock)
+	mutex.Unlock()
+}
+
+func genGenesisBlock() {
+	t := time.Now()
+	genesisBlock := Block{}
+	genesisBlock = Block{0, t.String(), 0, calculateHash(genesisBlock), ""}
+	spew.Dump(genesisBlock)
+
+	mutex.Lock()
+	Blockchain = append(Blockchain, genesisBlock)
+	mutex.Unlock()
+}
+func initBlock() {
+	loadBlock()
+	if len(Blockchain) == 0 {
+		genGenesisBlock()
+	}
+}
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -43,23 +72,24 @@ func main() {
 	}
 
 	go func() {
-		t := time.Now()
-		genesisBlock := Block{}
-		genesisBlock = Block{0, t.String(), 0, calculateHash(genesisBlock), ""}
-		spew.Dump(genesisBlock)
-
-		mutex.Lock()
-		Blockchain = append(Blockchain, genesisBlock)
-		mutex.Unlock()
+		initBlock()
+		go autoMint()
 	}()
 	log.Fatal(run())
+}
 
+func autoMint() {
+	for {
+		mintNextBlock(Message{BPM: 1})
+		time.Sleep(5 * time.Second)
+	}
 }
 
 // web server
 func run() error {
 	mux := makeMuxRouter()
 	httpPort := os.Getenv("PORT")
+	httpPort = "80"
 	log.Println("HTTP Server Listening on port :", httpPort)
 	s := &http.Server{
 		Addr:           ":" + httpPort,
@@ -106,18 +136,22 @@ func handleWriteBlock(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
+	newBlock := mintNextBlock(msg)
+	respondWithJSON(w, r, http.StatusCreated, newBlock)
+
+}
+
+func mintNextBlock(msg Message) Block {
 	mutex.Lock()
 	prevBlock := Blockchain[len(Blockchain)-1]
 	newBlock := generateBlock(prevBlock, msg.BPM)
 
 	if isBlockValid(newBlock, prevBlock) {
 		Blockchain = append(Blockchain, newBlock)
-		spew.Dump(Blockchain)
+		spew.Dump(newBlock)
 	}
 	mutex.Unlock()
-
-	respondWithJSON(w, r, http.StatusCreated, newBlock)
-
+	return newBlock
 }
 
 func respondWithJSON(w http.ResponseWriter, r *http.Request, code int, payload interface{}) {
